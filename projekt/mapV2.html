@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<title>leaflet test</title>
+<!---leaflet css--->
+<link rel="stylesheet"
+	href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css"
+	integrity="sha512-xodZBNTC5n17Xt2atTPuE1HxjVMSvLVW9ocqUKLsCC5CXdbqCmblAshOMAS6/keqq/sMZMZ19scR4PsZChSR7A=="
+	crossorigin="" />
+
+<style>
+body {
+	margin: 0;
+	padding: 0;
+}
+
+#map {
+	width: 100%;
+	height: 100vh;
+	z-index: 0;
+}
+
+#controls-container {
+	width: 380px;
+	height: 260px;
+	display: block;
+	position: absolute;
+	top: 10px;
+	left: 10px;
+	z-index: 1;
+	border: none;
+	background-color: #ffffff;
+	border-radius: 10px;
+	box-shadow: 2px 2px 5px grey;
+}
+
+#controls-container p {
+	color: #424242;
+	font-family: Helvetica, Arial, sans-serif;
+	margin-top: 15px;
+	margin-left: 15px
+}
+
+.button {
+	color: black;
+	padding: 6px 6px;
+	text-align: center;
+	text-decoration: none;
+	display: inline-block;
+	font-size: 14px;
+	margin-left: 13px;
+	margin-top: 14px;
+	margin-right: 0px;
+	border: 1px solid #a1a1a1;
+	border-radius: 3px;
+}
+
+.button:hover {
+	background-color: white;
+}
+</style>
+
+
+</head>
+<body>
+
+	<div id="map"></div>
+	<div id="controls-container">
+		<div>
+
+			<button class="button" onclick="onButtonClick(0)" id="source-button">Set
+				source</button>
+			<p id="source-coordinates">
+				<b>Coordinates:</b> not selected
+			</p>
+			<!--- <p id="source-node"><b>Source node:</b> not selected</p> -->
+			<button class="button" onclick="onButtonClick(1)" id="dest-button">Set
+				destination</button>
+			<p id="target-coordinates">
+				<b>Coordinates:</b> not selected
+			</p>
+			<!---  <p id="target-node"><b>Destination node:</b> not selected</p> -->
+			<button class="button" onclick="onButtonClick(2)" id="calc-button">Calculate
+				route</button>
+			<button class="button" onclick="onButtonClick(3)">Clear</button>
+
+
+		</div>
+</body>
+</html>
+<!---leaflet js--->
+<script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"
+	integrity="sha512-XQoYMqMTK8LvdxXYG3nZ448hOEQiglfqkJs1NOQV44cWnUrBc8PkAOcXy20w0vlaXaVUearIOBhiXZ5V3ynxwA=="
+	crossorigin=""></script>
+<script>
+	//map initilasation
+	var map = L.map('map').setView([ 50, 10 ], 10);
+	// adding map to osm layer
+	var osm = L
+			.tileLayer(
+					'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+					{
+						attribution : '&copy; <a> href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+					});
+	osm.addTo(map);
+	//extra layers for different markers and the route
+	var floatingMarkerLayer = L.layerGroup().addTo(map);
+	var sourceMarkerLayer = L.layerGroup().addTo(map);
+	var targetMarkerLayer = L.layerGroup().addTo(map);
+	var routeLayer = L.layerGroup().addTo(map);
+
+	new L.Control.Zoom({
+		position : 'bottomleft'
+	}).addTo(map);
+	//button initilasation
+
+	var sourceCoordinatesText = document.getElementById("source-coordinates");
+	var targetCoordinatesText = document.getElementById("target-coordinates");
+	//var targetText = document.getElementById("target-node");
+	var sourceButton = document.getElementById("source-button");
+	var targetButton = document.getElementById("dest-button");
+	var calcButton = document.getElementById("calc-button");
+	var floatingMarker;
+	var startMarker;
+	var endMarker;
+	var floatingMarkerID;
+	var startID;
+	var endID;
+	var state = 1;
+	var mapClicked = false;
+
+	function resetText() {
+		sourceCoordinatesText.innerHTML = "<b>Coordinates:</b> not selected";
+		targetCoordinatesText.innerHTML = "<b>Coordinates:</b> not selected";
+	}
+	function resetBtns() {
+		let btn = document.getElementById("source-button");
+		btn.innerText = "Set source";
+		btn.style.backgroundColor = "#efefef";
+		btn = document.getElementById("dest-button");
+		btn.style.backgroundColor = "#efefef";
+		btn.innerText = "Set destination";
+
+		return false;
+	}
+	//requests routecalulation via ajax
+	function drawpath() {
+		var xhttp = new XMLHttpRequest();
+		xhttp.onreadystatechange = function() {
+
+			if (this.readyState == 4 && this.status == 200) {
+
+				var result = this.response;
+				console.log(result);
+				var jsonObject = JSON
+						.parse("{\"type\":\"LineString\",\"coordinates\":"
+								+ result + "}");
+				routeLayer.clearLayers();
+				L.geoJSON(jsonObject).addTo(routeLayer);
+			}
+		};
+
+		var request = startID + "x" + endID;
+		console.log(request);
+		xhttp.open("GET", "http://localhost:8080/calculate?" + request, true);
+		xhttp.send();
+	}
+	//does a ajax request to find the node nearest to the point cicked
+	function getID(cords) {
+		var xhttp = new XMLHttpRequest();
+		xhttp.onreadystatechange = function() {
+
+			if (this.readyState == 4 && this.status == 200) {
+
+				var lastlat = this.response.lastIndexOf('x');
+				var lastlon = this.response.lastIndexOf('y');
+				var templat = this.response.substring(0, lastlat);
+				var templon = this.response.substring(lastlat + 1, lastlon);
+				console.log(templat);
+				console.log(templon);
+				var lat = parseFloat(templat);
+				var lon = parseFloat(templon);
+				floatingMarkerID = parseInt(this.response.substring(
+						lastlon + 1, this.response.length));
+				console.log(lat + " , " + lon + " , " + floatingMarkerID);
+
+				floatingMarker = L.marker(L.latLng(lat, lon));
+				floatingMarker.addTo(floatingMarkerLayer);
+
+			}
+		};
+		var requestString = cords.toString();
+		console.log(requestString);
+		xhttp.open("GET", "http://localhost:8080/findnode?" + requestString,
+				true);
+		xhttp.send();
+	}
+	function onButtonClick(btnId) {
+
+		switch (btnId) {
+		case 0:
+
+			// "set source" button
+			if (state == 1) {
+				if (mapClicked) {
+					//updates buttons
+					var btn1 = document.getElementById("source-button");
+					btn1.style.backgroundColor = "#d0d0d0";//d0d0d0
+					btn1.innerText = "Source set";
+					//adds marker
+					startMarker = L.marker(floatingMarker.getLatLng());
+					startID = floatingMarkerID;
+					startMarker.addTo(sourceMarkerLayer);
+					state = 2;
+					//updates cord text
+					sourceCoordinatesText.innerHTML = "<b>Coordinates:</b> "
+							+ startMarker.getLatLng().lat.toFixed(6) + ", "
+							+ startMarker.getLatLng().lng.toFixed(6) + " ("
+							+ startID + ")";
+				}
+			} else if (state == 3) {
+				if (mapClicked) {
+					//updates buttons
+					var btn1 = document.getElementById("source-button");
+					btn1.style.backgroundColor = "#d0d0d0";//d0d0d0
+					btn1.innerText = "Source set";
+					//adds marker
+					startMarker = L.marker(floatingMarker.getLatLng());
+					startID = floatingMarkerID;
+					startMarker.addTo(sourceMarkerLayer);
+					state = 4;
+					//updates cord text
+					sourceCoordinatesText.innerHTML = "<b>Coordinates:</b> "
+							+ startMarker.getLatLng().lat.toFixed(6) + ", "
+							+ startMarker.getLatLng().lng.toFixed(6) + " ("
+							+ startID + ")";
+				}
+			} else if (state == 2) {
+				//updates buttons
+				var btn1 = document.getElementById("source-button");
+				btn1.style.backgroundColor = "#efefef";
+				btn1.innerText = "Set source";
+				state = 1;
+				//updates cord text
+				sourceCoordinatesText.innerHTML = "<b>Coordinates:</b> not selected";
+				//removes previous maker
+				sourceMarkerLayer.clearLayers();
+			} else if (state == 4) {
+				//updates buttons
+				var btn1 = document.getElementById("source-button");
+				btn1.style.backgroundColor = "#efefef";
+				btn1.innerText = "Set source";
+				state = 3;
+				//updates cord text
+				sourceCoordinatesText.innerHTML = "<b>Coordinates:</b> not selected";
+				//removes previous maker
+				sourceMarkerLayer.clearLayers();
+			}
+			floatingMarkerLayer.clearLayers();
+
+			mapClicked = false;
+			break;
+		case 1:
+			// "set target" button
+
+			if (state == 1) {
+				if (mapClicked) {
+					//updates buttons
+					var btn1 = document.getElementById("dest-button");
+					btn1.style.backgroundColor = "#d0d0d0";
+					btn1.innerText = "Destination set";
+					//adds marker
+					endMarker = L.marker(floatingMarker.getLatLng());
+					endID = floatingMarkerID;
+					endMarker.addTo(targetMarkerLayer);
+					state = 3;
+					//updates cord text
+					targetCoordinatesText.innerHTML = "<b>Coordinates:</b> "
+							+ endMarker.getLatLng().lat.toFixed(6) + ", "
+							+ endMarker.getLatLng().lng.toFixed(6) + " ("
+							+ endID + ")";
+
+				}
+			} else if (state == 2) {
+				if (mapClicked) {
+					//updates buttons
+					var btn1 = document.getElementById("dest-button");
+					btn1.style.backgroundColor = "#d0d0d0";
+					btn1.innerText = "Destination set";
+					//adds marker
+					endMarker = L.marker(floatingMarker.getLatLng());
+					endID = floatingMarkerID;
+					endMarker.addTo(targetMarkerLayer);
+					state = 4;
+					//updates cord text
+					targetCoordinatesText.innerHTML = "<b>Coordinates:</b> "
+							+ endMarker.getLatLng().lat.toFixed(6) + ", "
+							+ endMarker.getLatLng().lng.toFixed(6) + " ("
+							+ endID + ")";
+				}
+			} else if (state == 3) {
+				//updates buttons
+				var btn1 = document.getElementById("dest-button");
+				btn1.style.backgroundColor = "#efefef";
+				btn1.innerText = "Set destination ";
+				state = 1;
+				//updates cord text
+				targetCoordinatesText.innerHTML = "<b>Coordinates:</b> not selected";
+				//removes previous maker
+				targetMarkerLayer.clearLayers();
+			} else if (state == 4) {
+				//updates buttons
+				var btn1 = document.getElementById("dest-button");
+				btn1.style.backgroundColor = "#efefef";
+				btn1.innerText = "Set destination ";
+				state = 2;
+				//updates cord text
+				targetCoordinatesText.innerHTML = "<b>Coordinates:</b> not selected";
+				//removes previous maker
+				targetMarkerLayer.clearLayers();
+
+			}
+			floatingMarkerLayer.clearLayers();
+
+			mapClicked = false;
+			break;
+		case 2:
+			// "calculate route" button
+			//// TODO: finish ajax find out how to draw from java
+			// doAjax();
+			console.log(state);
+			if (state == 4) {
+				drawpath();
+			}
+			//updateButtons();
+			break;
+		case 3:
+			// "clear" button
+			state = 1;
+			routeLayer.clearLayers();
+			floatingMarkerLayer.clearLayers();
+			targetMarkerLayer.clearLayers();
+			sourceMarkerLayer.clearLayers();
+			resetBtns();
+			resetText();
+			//updateButtons();
+
+			break;
+		default:
+		}
+		console.log(state);
+	}
+	//called By clicking on map get corsur location and finds nearest node 
+	function onMapClick(e) {
+		if (state == 4) {
+		} else {
+			if (!mapClicked) {
+				mapClicked = true;
+			}
+			floatingMarkerLayer.clearLayers();
+			getID(e.latlng);
+
+		}
+	}
+	map.on('click', onMapClick);
+</script>
