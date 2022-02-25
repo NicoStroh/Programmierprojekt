@@ -20,3 +20,4 @@ Durch Klick auf die Map wird der Marker auf den nächsten Knoten gesetzt.
 "Clear" entfernt die gesetzten Marker und den berechneten Pfad (falls gegeben).
 "Calculate Route" berechnet und zeigt die Route vom ausgewählten Startknoten zum ausgewählten Zielknoten.
 ```
+Zum Testen verwenden Sie bitte Graphen von der Website https://fmi.uni-stuttgart.de/alg/research/stuff/ ; da diese Graphen im richtigen Format sind, am besten nehmen sie  germany.fmi.bz2 .
